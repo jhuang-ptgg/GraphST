@@ -1,5 +1,18 @@
 # Spatially informed clustering, integration, and deconvolution of spatial transcriptomics with GraphST
 
+## NOTE: 
+This is a Fork from [https://github.com/JinmiaoChenLab/GraphST/](https://github.com/JinmiaoChenLab/GraphST/).
+
+### Updates made in this fork
+* Use python==3.13 as default python version
+* Generated pyproject.toml for using uv as package management system
+* remove mclust and R dependency, use sklearn to replace
+* use leiden as default clustering method
+
+
+
+## Original contents
+
 [![DOI](https://zenodo.org/badge/494373596.svg)](https://zenodo.org/badge/latestdoi/494373596)
 
 ![](https://github.com/JinmiaoChenLab/GraphST/blob/main/GraphST.jpg)
@@ -9,7 +22,7 @@ GraphST is a versatile graph self-supervised contrastive learning model that inc
 
 ## Requirements
 You'll need to install the following packages in order to run the codes.
-* python==3.8
+* python==3.12
 * torch>=1.8.0
 * cudnn>=10.2
 * numpy==1.22.3

@@ -47,51 +47,68 @@ def permutation(feature):
     
     return feature_permutated 
 
-def construct_interaction(adata, n_neighbors=3):
-    """Constructing spot-to-spot interactive graph"""
+def construct_interaction(adata, n_neighbors=3, large_scale_threshold=100000, chunk_size=50000):
+    """Constructing spot-to-spot interactive graph.
+
+    Auto-routes to chunked sparse construction for large datasets.
+    """
+    if adata.n_obs > large_scale_threshold:
+        from .chunked_graph import construct_interaction_chunked
+        construct_interaction_chunked(adata, n_neighbors=n_neighbors, chunk_size=chunk_size)
+        return
+
     position = adata.obsm['spatial']
-    
+
     # calculate distance matrix
     distance_matrix = ot.dist(position, position, metric='euclidean')
     n_spot = distance_matrix.shape[0]
-    
+
     adata.obsm['distance_matrix'] = distance_matrix
-    
+
     # find k-nearest neighbors
-    interaction = np.zeros([n_spot, n_spot])  
+    interaction = np.zeros([n_spot, n_spot])
     for i in range(n_spot):
         vec = distance_matrix[i, :]
         distance = vec.argsort()
         for t in range(1, n_neighbors + 1):
             y = distance[t]
             interaction[i, y] = 1
-         
+
     adata.obsm['graph_neigh'] = interaction
-    
+
     #transform adj to symmetrical adj
     adj = interaction
     adj = adj + adj.T
     adj = np.where(adj>1, 1, adj)
-    
+
     adata.obsm['adj'] = adj
     
-def construct_interaction_KNN(adata, n_neighbors=3):
+def construct_interaction_KNN(adata, n_neighbors=3, large_scale_threshold=100000, chunk_size=50000):
+    """Constructing KNN graph for Stereo-seq/Slide-seq data.
+
+    Auto-routes to chunked sparse construction for large datasets.
+    """
+    if adata.n_obs > large_scale_threshold:
+        from .chunked_graph import construct_interaction_chunked
+        construct_interaction_chunked(adata, n_neighbors=n_neighbors, chunk_size=chunk_size)
+        return
+
     position = adata.obsm['spatial']
     n_spot = position.shape[0]
-    nbrs = NearestNeighbors(n_neighbors=n_neighbors+1).fit(position)  
+    nbrs = NearestNeighbors(n_neighbors=n_neighbors+1).fit(position)
     _ , indices = nbrs.kneighbors(position)
     x = indices[:, 0].repeat(n_neighbors)
     y = indices[:, 1:].flatten()
     interaction = np.zeros([n_spot, n_spot])
     interaction[x, y] = 1
-    
+
     adata.obsm['graph_neigh'] = interaction
-    
+
     #transform adj to symmetrical adj
     adj = interaction
     adj = adj + adj.T
     adj = np.where(adj>1, 1, adj)
-    
+
     adata.obsm['adj'] = adj
     print('Graph constructed!')   
 

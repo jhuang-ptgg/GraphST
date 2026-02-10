@@ -1,36 +1,42 @@
+import warnings
+
 import numpy as np
 import pandas as pd
 from sklearn import metrics
 import scanpy as sc
 import ot
 from sklearn.decomposition import PCA
+from sklearn.mixture import GaussianMixture
 
 
-def mclust_R(adata, num_cluster, modelNames='EEE', used_obsm='emb_pca', random_seed=2020):
+def gmm_clustering(adata, num_cluster, used_obsm='emb_pca', random_seed=2020):
     """\
-    Clustering using the mclust algorithm.
-    The parameters are the same as those in the R package mclust.
+    Clustering using Gaussian Mixture Model with tied covariance (equivalent to mclust EEE).
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        AnnData object.
+    num_cluster : int
+        Number of clusters.
+    used_obsm : str, optional
+        Key in adata.obsm for the embedding to cluster. Default is 'emb_pca'.
+    random_seed : int, optional
+        Random seed. Default is 2020.
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        AnnData with adata.obs['gmm'] set to cluster labels.
     """
-    
-    np.random.seed(random_seed)
-    import rpy2.robjects as robjects
-    robjects.r.library("mclust")
-
-    import rpy2.robjects.numpy2ri
-    rpy2.robjects.numpy2ri.activate()
-    r_random_seed = robjects.r['set.seed']
-    r_random_seed(random_seed)
-    rmclust = robjects.r['Mclust']
-    
-    res = rmclust(rpy2.robjects.numpy2ri.numpy2rpy(adata.obsm[used_obsm]), num_cluster, modelNames)
-    mclust_res = np.array(res[-2])
-
-    adata.obs['mclust'] = mclust_res
-    adata.obs['mclust'] = adata.obs['mclust'].astype('int')
-    adata.obs['mclust'] = adata.obs['mclust'].astype('category')
+    gmm = GaussianMixture(n_components=num_cluster, covariance_type='tied', random_state=random_seed)
+    labels = gmm.fit_predict(adata.obsm[used_obsm])
+    adata.obs['gmm'] = labels
+    adata.obs['gmm'] = adata.obs['gmm'].astype('int')
+    adata.obs['gmm'] = adata.obs['gmm'].astype('category')
     return adata
 
-def clustering(adata, n_clusters=7, radius=50, key='emb', method='mclust', start=0.1, end=3.0, increment=0.01, refinement=False):
+def clustering(adata, n_clusters=7, radius=50, key='emb', method='gmm', start=0.1, end=3.0, increment=0.01, refinement=False):
     """\
     Spatial clustering based the learned representation.
 
@@ -45,7 +51,8 @@ def clustering(adata, n_clusters=7, radius=50, key='emb', method='mclust', start
     key : string, optional
         The key of the learned representation in adata.obsm. The default is 'emb'.
     method : string, optional
-        The tool for clustering. Supported tools include 'mclust', 'leiden', and 'louvain'. The default is 'mclust'. 
+        The tool for clustering. Supported tools include 'gmm', 'leiden', and 'louvain'. The default is 'gmm'.
+        'mclust' is accepted as a deprecated alias for 'gmm'.
     start : float
         The start value for searching. The default is 0.1.
     end : float 
@@ -66,8 +73,17 @@ def clustering(adata, n_clusters=7, radius=50, key='emb', method='mclust', start
     adata.obsm['emb_pca'] = embedding
     
     if method == 'mclust':
-       adata = mclust_R(adata, used_obsm='emb_pca', num_cluster=n_clusters)
-       adata.obs['domain'] = adata.obs['mclust']
+       warnings.warn(
+           "method='mclust' is deprecated, use method='gmm' instead. "
+           "Falling back to GMM clustering.",
+           FutureWarning,
+           stacklevel=2,
+       )
+       method = 'gmm'
+
+    if method == 'gmm':
+       adata = gmm_clustering(adata, used_obsm='emb_pca', num_cluster=n_clusters)
+       adata.obs['domain'] = adata.obs['gmm']
     elif method == 'leiden':
        res = search_res(adata, n_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
        sc.tl.leiden(adata, random_state=0, resolution=res)
@@ -85,25 +101,23 @@ def refine_label(adata, radius=50, key='label'):
     n_neigh = radius
     new_type = []
     old_type = adata.obs[key].values
-    
-    #calculate distance
+
     position = adata.obsm['spatial']
-    distance = ot.dist(position, position, metric='euclidean')
-           
-    n_cell = distance.shape[0]
-    
+    n_cell = position.shape[0]
+
+    # Use KNN-based approach instead of dense NxN distance matrix
+    from sklearn.neighbors import NearestNeighbors
+    nbrs = NearestNeighbors(n_neighbors=n_neigh + 1).fit(position)
+    _, indices = nbrs.kneighbors(position)
+
     for i in range(n_cell):
-        vec  = distance[i, :]
-        index = vec.argsort()
-        neigh_type = []
-        for j in range(1, n_neigh+1):
-            neigh_type.append(old_type[index[j]])
+        neigh_idx = indices[i, 1:]  # exclude self
+        neigh_type = list(old_type[neigh_idx])
         max_type = max(neigh_type, key=neigh_type.count)
         new_type.append(max_type)
-        
-    new_type = [str(i) for i in list(new_type)]    
-    #adata.obs['label_refined'] = np.array(new_type)
-    
+
+    new_type = [str(i) for i in list(new_type)]
+
     return new_type
 
 def extract_top_value(map_matrix, retain_percent = 0.1): 

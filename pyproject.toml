@@ -1,0 +1,43 @@
+[project]
+name = "GraphST"
+version = "1.1.1"
+description = "Spatially informed clustering, integration, and deconvolution of spatial transcriptomics with GraphST"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+authors = [
+    { name = "Yahui Long", email = "longyh@immunol.a-star.edu.sg" },
+]
+keywords = [
+    "Spatial transcriptomics",
+    "Graph self-supervised contrastive learning",
+    "Spatial clustering",
+    "Cell type deconvolution",
+    "Batch correction",
+    "Single-cell RNA-seq",
+]
+dependencies = [
+    "dask[array]",
+    "matplotlib>=3.10.8",
+    "numpy>=2.3.5",
+    "pot>=0.9.6.post1",
+    "pynndescent",
+    "requests",
+    "scanpy>=1.11.5",
+    "torch>=2.10.0",
+    "torchvision>=0.25.0",
+    "tqdm>=4.66.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/JinmiaoChenLab/GraphST"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[tool.setuptools]
+packages = ["GraphST"]
+
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/cu130"

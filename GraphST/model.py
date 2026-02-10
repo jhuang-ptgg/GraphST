@@ -38,12 +38,16 @@ class AvgReadout(nn.Module):
         super(AvgReadout, self).__init__()
 
     def forward(self, emb, mask=None):
-        vsum = torch.mm(mask, emb)
-        row_sum = torch.sum(mask, 1)
+        if mask.is_sparse:
+            vsum = torch.spmm(mask, emb)
+            row_sum = torch.sparse.sum(mask, dim=1).to_dense()
+        else:
+            vsum = torch.mm(mask, emb)
+            row_sum = torch.sum(mask, 1)
         row_sum = row_sum.expand((vsum.shape[1], row_sum.shape[0])).T
-        global_emb = vsum / row_sum 
-          
-        return F.normalize(global_emb, p=2, dim=1) 
+        global_emb = vsum / row_sum
+
+        return F.normalize(global_emb, p=2, dim=1)
     
 class Encoder(Module):
     def __init__(self, in_features, out_features, graph_neigh, dropout=0.0, act=F.relu):
@@ -67,32 +71,35 @@ class Encoder(Module):
         torch.nn.init.xavier_uniform_(self.weight1)
         torch.nn.init.xavier_uniform_(self.weight2)
 
-    def forward(self, feat, feat_a, adj):
+    def forward(self, feat, feat_a, adj, graph_neigh=None):
+        if graph_neigh is None:
+            graph_neigh = self.graph_neigh
+
         z = F.dropout(feat, self.dropout, self.training)
         z = torch.mm(z, self.weight1)
         z = torch.mm(adj, z)
-        
+
         hiden_emb = z
-        
+
         h = torch.mm(z, self.weight2)
         h = torch.mm(adj, h)
-        
+
         emb = self.act(z)
-        
+
         z_a = F.dropout(feat_a, self.dropout, self.training)
         z_a = torch.mm(z_a, self.weight1)
         z_a = torch.mm(adj, z_a)
         emb_a = self.act(z_a)
-        
-        g = self.read(emb, self.graph_neigh) 
-        g = self.sigm(g)  
 
-        g_a = self.read(emb_a, self.graph_neigh)
-        g_a = self.sigm(g_a)  
+        g = self.read(emb, graph_neigh)
+        g = self.sigm(g)
 
-        ret = self.disc(g, emb, emb_a)  
-        ret_a = self.disc(g_a, emb_a, emb) 
-        
+        g_a = self.read(emb_a, graph_neigh)
+        g_a = self.sigm(g_a)
+
+        ret = self.disc(g, emb, emb_a)
+        ret_a = self.disc(g_a, emb_a, emb)
+
         return hiden_emb, h, ret, ret_a
     
 class Encoder_sparse(Module):
@@ -120,33 +127,36 @@ class Encoder_sparse(Module):
         torch.nn.init.xavier_uniform_(self.weight1)
         torch.nn.init.xavier_uniform_(self.weight2)
 
-    def forward(self, feat, feat_a, adj):
+    def forward(self, feat, feat_a, adj, graph_neigh=None):
+        if graph_neigh is None:
+            graph_neigh = self.graph_neigh
+
         z = F.dropout(feat, self.dropout, self.training)
         z = torch.mm(z, self.weight1)
         z = torch.spmm(adj, z)
-        
+
         hiden_emb = z
-        
+
         h = torch.mm(z, self.weight2)
         h = torch.spmm(adj, h)
-        
+
         emb = self.act(z)
-        
+
         z_a = F.dropout(feat_a, self.dropout, self.training)
         z_a = torch.mm(z_a, self.weight1)
         z_a = torch.spmm(adj, z_a)
         emb_a = self.act(z_a)
-         
-        g = self.read(emb, self.graph_neigh)
+
+        g = self.read(emb, graph_neigh)
         g = self.sigm(g)
-        
-        g_a = self.read(emb_a, self.graph_neigh)
-        g_a =self.sigm(g_a)       
-       
-        ret = self.disc(g, emb, emb_a)  
+
+        g_a = self.read(emb_a, graph_neigh)
+        g_a = self.sigm(g_a)
+
+        ret = self.disc(g, emb, emb_a)
         ret_a = self.disc(g_a, emb_a, emb)
-        
-        return hiden_emb, h, ret, ret_a     
+
+        return hiden_emb, h, ret, ret_a
 
 class Encoder_sc(torch.nn.Module):
     def __init__(self, dim_input, dim_output, dropout=0.0, act=F.relu):
@@ -208,14 +218,47 @@ class Encoder_map(torch.nn.Module):
         super(Encoder_map, self).__init__()
         self.n_cell = n_cell
         self.n_spot = n_spot
-          
+
         self.M = Parameter(torch.FloatTensor(self.n_cell, self.n_spot))
         self.reset_parameters()
 
     def reset_parameters(self):
         torch.nn.init.xavier_uniform_(self.M)
-        
+
     def forward(self):
         x = self.M
-        
-        return x 
+
+        return x
+
+
+class Encoder_map_lowrank(torch.nn.Module):
+    """Low-rank approximation of mapping matrix for large-scale deconvolution.
+
+    Instead of a full (n_cell x n_spot) parameter matrix (~40GB for 10K x 1M),
+    uses M_approx = U @ V.T where U: (n_cell, rank), V: (n_spot, rank).
+
+    Parameters
+    ----------
+    n_cell : int
+        Number of cells (scRNA-seq).
+    n_spot : int
+        Number of spatial spots.
+    rank : int
+        Rank of the low-rank approximation (default 128).
+    """
+    def __init__(self, n_cell, n_spot, rank=128):
+        super(Encoder_map_lowrank, self).__init__()
+        self.n_cell = n_cell
+        self.n_spot = n_spot
+        self.rank = rank
+
+        self.U = Parameter(torch.FloatTensor(n_cell, rank))
+        self.V = Parameter(torch.FloatTensor(n_spot, rank))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        torch.nn.init.xavier_uniform_(self.U)
+        torch.nn.init.xavier_uniform_(self.V)
+
+    def forward(self):
+        return torch.mm(self.U, self.V.t())
