@@ -22,7 +22,7 @@ source .venv/bin/activate
 ```
 
 3. Install pytorch
-It is recommended to install pytorch with GPU support. Here is an example to install the CUDA 13 verision of pytorch
+It is recommended to install pytorch with GPU support. Here is an example to install the CUDA 13 version of pytorch
 ```bash
 uv pip install --index
 ```
