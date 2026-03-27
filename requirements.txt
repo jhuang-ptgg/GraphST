@@ -1,0 +1,10 @@
+dask[array]
+matplotlib>=3.10.8
+numpy>=2.3.5
+pot>=0.9.6.post1
+pynndescent
+requests
+scanpy>=1.11.5
+torch>=2.10.0
+tqdm>=4.66.5
+scikit-misc==0.5.2

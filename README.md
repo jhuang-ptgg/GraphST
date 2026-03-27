@@ -9,6 +9,25 @@ This is a Fork from [https://github.com/JinmiaoChenLab/GraphST/](https://github.
 * remove mclust and R dependency, use sklearn to replace
 * use leiden as default clustering method
 
+## Install steps
+We recommend to use `uv` for package and virtual environment management 
+1. Create an venv with python 3.13
+```bash
+uv venv --python=3.13 .
+```
+
+2. Switch to the created venv
+```bash
+source .venv/bin/activate
+```
+
+3. Install pytorch
+It is recommended to install pytorch with GPU support. Here is an example to install the CUDA 13 verision of pytorch
+```bash
+uv pip install --index
+```
+
+
 
 
 ## Original contents

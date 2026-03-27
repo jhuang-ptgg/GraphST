@@ -1,6 +1,6 @@
 import torch
 from .preprocess import preprocess_adj, preprocess_adj_sparse, preprocess, construct_interaction, construct_interaction_KNN, add_contrastive_label, get_feature, permutation, fix_seed, sparse_mx_to_torch_sparse_tensor
-import time
+
 import random
 import numpy as np
 from .model import Encoder, Encoder_sparse, Encoder_map, Encoder_map_lowrank, Encoder_sc
@@ -15,8 +15,8 @@ import pandas as pd
 class GraphST():
     def __init__(self,
         adata,
-        adata_sc = None,
         device= torch.device('cpu'),
+        adata_sc = None,
         learning_rate=0.001,
         learning_rate_sc = 0.01,
         weight_decay=0.00,
@@ -35,6 +35,7 @@ class GraphST():
         chunk_size = 50000,
         batch_size = 10000,
         map_rank = 128,
+        patience = 25,
         ):
         '''\
 
@@ -108,31 +109,41 @@ class GraphST():
         self.chunk_size = chunk_size
         self.batch_size = batch_size
         self.map_rank = map_rank
+        self.patience = patience
 
         # Auto-detect large_scale mode
         if large_scale is None:
-            self.large_scale = adata.n_obs > 100000
+            self.large_scale = adata.n_obs > 30000
         else:
             self.large_scale = large_scale
 
         if self.large_scale:
             print(f'Large-scale mode enabled for {adata.n_obs} spots (chunk_size={chunk_size}, batch_size={batch_size})')
 
+        print("Using device:", self.device)
+        print(f"patience: {self.patience} epochs without improvement for early stopping")
+
         fix_seed(self.random_seed)
 
         if 'highly_variable' not in adata.var.keys():
+           print("Calculating highly variable genes...")
            preprocess(self.adata)
 
         if 'adj' not in adata.obsm.keys():
-           if self.datatype in ['Stereo', 'Slide']:
-              construct_interaction_KNN(self.adata, large_scale_threshold=0 if self.large_scale else 100000, chunk_size=self.chunk_size)
+           print("Constructing spatial graph and neighbor graph...")
+           if self.large_scale:
+              from .chunked_graph import construct_interaction_chunked
+              construct_interaction_chunked(self.adata, chunk_size=self.chunk_size)
+           elif self.datatype in ['Stereo', 'Slide']:
+              construct_interaction_KNN(self.adata)
            else:
-              construct_interaction(self.adata, large_scale_threshold=0 if self.large_scale else 100000, chunk_size=self.chunk_size)
+              construct_interaction(self.adata)
 
         if 'label_CSL' not in adata.obsm.keys():
            add_contrastive_label(self.adata)
 
         if 'feat' not in adata.obsm.keys():
+           print("Extracting features...")
            if self.large_scale:
               from .dask_preprocess import get_feature_chunked
               get_feature_chunked(self.adata, chunk_size=self.chunk_size, deconvolution=self.deconvolution)
@@ -247,6 +258,9 @@ class GraphST():
         print('Begin to train ST data...')
         self.model.train()
 
+        best_loss = float('inf')
+        no_improve = 0
+
         for epoch in tqdm(range(self.epochs)):
             self.model.train()
 
@@ -262,6 +276,16 @@ class GraphST():
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+
+            epoch_loss = loss.item()
+            if epoch_loss < best_loss:
+                best_loss = epoch_loss
+                no_improve = 0
+            else:
+                no_improve += 1
+                if no_improve >= self.patience:
+                    print(f"Early stopping at epoch {epoch}, best loss: {best_loss:.6f}")
+                    break
 
         print("Optimization finished for ST data!")
 
@@ -292,7 +316,10 @@ class GraphST():
         self.optimizer = torch.optim.Adam(self.model.parameters(), self.learning_rate,
                                           weight_decay=self.weight_decay)
 
-        print('Begin to train ST data (large-scale mini-batch)...')
+        print('Begin to train ST data (large-scale mini-batch)..., using device:', self.device)
+
+        best_loss = float('inf')
+        no_improve = 0
 
         for epoch in tqdm(range(self.epochs)):
             self.model.train()
@@ -328,6 +355,16 @@ class GraphST():
 
                 epoch_loss += loss.item()
                 n_batches += 1
+
+            avg_loss = epoch_loss / max(n_batches, 1)
+            if avg_loss < best_loss:
+                best_loss = avg_loss
+                no_improve = 0
+            else:
+                no_improve += 1
+                if no_improve >= self.patience:
+                    print(f"Early stopping at epoch {epoch}, best loss: {best_loss:.6f}")
+                    break
 
         print("Optimization finished for ST data (large-scale)!")
 

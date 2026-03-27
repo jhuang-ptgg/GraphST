@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn import metrics
 import scanpy as sc
+import rapids_singlecell as rsc
 import ot
 from sklearn.decomposition import PCA
 from sklearn.mixture import GaussianMixture
@@ -36,7 +37,7 @@ def gmm_clustering(adata, num_cluster, used_obsm='emb_pca', random_seed=2020):
     adata.obs['gmm'] = adata.obs['gmm'].astype('category')
     return adata
 
-def clustering(adata, n_clusters=7, radius=50, key='emb', method='gmm', start=0.1, end=3.0, increment=0.01, refinement=False):
+def clustering(adata, min_clusters=7, radius=50, key='emb', method='gmm', start=0.1, end=3.0, increment=0.01, refinement=False):
     """\
     Spatial clustering based the learned representation.
 
@@ -44,8 +45,8 @@ def clustering(adata, n_clusters=7, radius=50, key='emb', method='gmm', start=0.
     ----------
     adata : anndata
         AnnData object of scanpy package.
-    n_clusters : int, optional
-        The number of clusters. The default is 7.
+    min_clusters : int, optional
+        The minimum number of clusters. The default is 7.
     radius : int, optional
         The number of neighbors considered during refinement. The default is 50.
     key : string, optional
@@ -82,15 +83,15 @@ def clustering(adata, n_clusters=7, radius=50, key='emb', method='gmm', start=0.
        method = 'gmm'
 
     if method == 'gmm':
-       adata = gmm_clustering(adata, used_obsm='emb_pca', num_cluster=n_clusters)
+       adata = gmm_clustering(adata, used_obsm='emb_pca', num_cluster=min_clusters)
        adata.obs['domain'] = adata.obs['gmm']
     elif method == 'leiden':
-       res = search_res(adata, n_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
-       sc.tl.leiden(adata, random_state=0, resolution=res)
+       adata = search_res(adata, min_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
+       #sc.tl.leiden(adata, random_state=0, resolution=res, flavor='igraph', directed=False)
        adata.obs['domain'] = adata.obs['leiden']
     elif method == 'louvain':
-       res = search_res(adata, n_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
-       sc.tl.louvain(adata, random_state=0, resolution=res)
+       adata = search_res(adata, min_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
+       #sc.tl.louvain(adata, random_state=0, resolution=res)
        adata.obs['domain'] = adata.obs['louvain'] 
        
     if refinement:  
@@ -202,7 +203,7 @@ def project_cell_to_spot(adata, adata_sc, retain_percent=0.1):
     #add projection results to adata
     adata.obs[df_projection.columns] = df_projection
     
-def search_res(adata, n_clusters, method='leiden', use_rep='emb', start=0.1, end=3.0, increment=0.01):
+def search_res(adata, min_clusters, method='leiden', use_rep='emb', start=0.1, end=3.0, increment=0.01):
     '''\
     Searching corresponding resolution according to given cluster number
     
@@ -210,14 +211,14 @@ def search_res(adata, n_clusters, method='leiden', use_rep='emb', start=0.1, end
     ----------
     adata : anndata
         AnnData object of spatial data.
-    n_clusters : int
-        Targetting number of clusters.
+    min_clusters : int
+        Targetting minimum number of clusters.
     method : string
         Tool for clustering. Supported tools include 'leiden' and 'louvain'. The default is 'leiden'.    
     use_rep : string
         The indicated representation for clustering.
     start : float
-        The start value for searching.
+        The start value for searching. must be less than end value.
     end : float 
         The end value for searching.
     increment : float
@@ -230,21 +231,21 @@ def search_res(adata, n_clusters, method='leiden', use_rep='emb', start=0.1, end
         
     '''
     print('Searching resolution...')
-    label = 0
-    sc.pp.neighbors(adata, n_neighbors=50, use_rep=use_rep)
-    for res in sorted(list(np.arange(start, end, increment)), reverse=True):
+
+    rsc.pp.neighbors(adata, n_neighbors=50, use_rep=use_rep)
+    assert start < end, "Start value must be less than end value."
+    for res in np.arange(start, end, increment):
         if method == 'leiden':
-           sc.tl.leiden(adata, random_state=0, resolution=res)
+           #sc.tl.leiden(adata, random_state=0, resolution=res, flavor='igraph', directed=False)
+           rsc.tl.leiden(adata, random_state=0, resolution=res)
            count_unique = len(pd.DataFrame(adata.obs['leiden']).leiden.unique())
            print('resolution={}, cluster number={}'.format(res, count_unique))
         elif method == 'louvain':
-           sc.tl.louvain(adata, random_state=0, resolution=res)
+           rsc.tl.louvain(adata, random_state=0, resolution=res)
            count_unique = len(pd.DataFrame(adata.obs['louvain']).louvain.unique()) 
            print('resolution={}, cluster number={}'.format(res, count_unique))
-        if count_unique == n_clusters:
-            label = 1
-            break
-
-    assert label==1, "Resolution is not found. Please try bigger range or smaller step!." 
-       
-    return res    
+        
+        if count_unique >= min_clusters:
+            return adata    
+    
+    raise ValueError("Could not find a resolution that yields the desired number of clusters within the specified range.")

@@ -47,16 +47,9 @@ def permutation(feature):
     
     return feature_permutated 
 
-def construct_interaction(adata, n_neighbors=3, large_scale_threshold=100000, chunk_size=50000):
-    """Constructing spot-to-spot interactive graph.
-
-    Auto-routes to chunked sparse construction for large datasets.
-    """
-    if adata.n_obs > large_scale_threshold:
-        from .chunked_graph import construct_interaction_chunked
-        construct_interaction_chunked(adata, n_neighbors=n_neighbors, chunk_size=chunk_size)
-        return
-
+def construct_interaction(adata, n_neighbors=3):
+    """Constructing spot-to-spot interactive graph (full-batch dense method)."""
+    print('Constructing spatial graph and neighbor graph using full-batch method...')
     position = adata.obsm['spatial']
 
     # calculate distance matrix
@@ -83,16 +76,8 @@ def construct_interaction(adata, n_neighbors=3, large_scale_threshold=100000, ch
 
     adata.obsm['adj'] = adj
     
-def construct_interaction_KNN(adata, n_neighbors=3, large_scale_threshold=100000, chunk_size=50000):
-    """Constructing KNN graph for Stereo-seq/Slide-seq data.
-
-    Auto-routes to chunked sparse construction for large datasets.
-    """
-    if adata.n_obs > large_scale_threshold:
-        from .chunked_graph import construct_interaction_chunked
-        construct_interaction_chunked(adata, n_neighbors=n_neighbors, chunk_size=chunk_size)
-        return
-
+def construct_interaction_KNN(adata, n_neighbors=3):
+    """Constructing KNN graph for Stereo-seq/Slide-seq data (full-batch method)."""
     position = adata.obsm['spatial']
     n_spot = position.shape[0]
     nbrs = NearestNeighbors(n_neighbors=n_neighbors+1).fit(position)
@@ -164,7 +149,7 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     indices = torch.from_numpy(np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int64))
     values = torch.from_numpy(sparse_mx.data)
     shape = torch.Size(sparse_mx.shape)
-    return torch.sparse.FloatTensor(indices, values, shape)
+    return torch.sparse_coo_tensor(indices, values, shape, dtype=torch.float32)
 
 def preprocess_adj_sparse(adj):
     adj = sp.coo_matrix(adj)
