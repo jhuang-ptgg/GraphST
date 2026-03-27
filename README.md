@@ -27,8 +27,28 @@ It is recommended to install pytorch with GPU support. Here is an example to ins
 uv pip install --index
 ```
 
+4. Install GraphST
+```bash
+pip install -e .
+```
 
+## Visium HD / Large-Scale Data
 
+> **Strongly recommended** if you are processing **Visium HD** or any dataset with >30,000 spots.
+
+Visium HD produces hundreds of thousands of spots. Without the optional large-scale dependencies, GraphST will run out of memory during graph construction and feature extraction.
+
+Install both optional extras:
+```bash
+pip install -e ".[large-scale,gpu]"
+```
+
+| Extra | Package | Purpose |
+|---|---|---|
+| `large-scale` | `dask[array]` | Chunked graph construction and feature extraction for >30K spots |
+| `gpu` | `rapids-singlecell` | GPU-accelerated leiden/louvain clustering (falls back to scanpy if absent) |
+
+`rapids-singlecell` requires a CUDA-capable GPU and the [RAPIDS](https://rapids.ai) stack. If you are on a CPU-only machine, omit the `gpu` extra — clustering will automatically fall back to scanpy.
 
 ## Original contents
 

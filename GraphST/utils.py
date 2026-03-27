@@ -4,7 +4,11 @@ import numpy as np
 import pandas as pd
 from sklearn import metrics
 import scanpy as sc
-import rapids_singlecell as rsc
+try:
+    import rapids_singlecell as rsc
+    _USE_RAPIDS = True
+except ImportError:
+    _USE_RAPIDS = False
 import ot
 from sklearn.decomposition import PCA
 from sklearn.mixture import GaussianMixture
@@ -37,7 +41,7 @@ def gmm_clustering(adata, num_cluster, used_obsm='emb_pca', random_seed=2020):
     adata.obs['gmm'] = adata.obs['gmm'].astype('category')
     return adata
 
-def clustering(adata, min_clusters=7, radius=50, key='emb', method='gmm', start=0.1, end=3.0, increment=0.01, refinement=False):
+def clustering(adata, min_clusters=7, radius=50, key='emb', method='leiden', start=0.1, end=3.0, increment=0.01, refinement=False):
     """\
     Spatial clustering based the learned representation.
 
@@ -232,17 +236,25 @@ def search_res(adata, min_clusters, method='leiden', use_rep='emb', start=0.1, e
     '''
     print('Searching resolution...')
 
-    rsc.pp.neighbors(adata, n_neighbors=50, use_rep=use_rep)
+    if _USE_RAPIDS:
+        rsc.pp.neighbors(adata, n_neighbors=50, use_rep=use_rep)
+    else:
+        sc.pp.neighbors(adata, n_neighbors=50, use_rep=use_rep)
     assert start < end, "Start value must be less than end value."
     for res in np.arange(start, end, increment):
         if method == 'leiden':
-           #sc.tl.leiden(adata, random_state=0, resolution=res, flavor='igraph', directed=False)
-           rsc.tl.leiden(adata, random_state=0, resolution=res)
+           if _USE_RAPIDS:
+               rsc.tl.leiden(adata, random_state=0, resolution=res)
+           else:
+               sc.tl.leiden(adata, random_state=0, resolution=res, flavor='igraph', directed=False)
            count_unique = len(pd.DataFrame(adata.obs['leiden']).leiden.unique())
            print('resolution={}, cluster number={}'.format(res, count_unique))
         elif method == 'louvain':
-           rsc.tl.louvain(adata, random_state=0, resolution=res)
-           count_unique = len(pd.DataFrame(adata.obs['louvain']).louvain.unique()) 
+           if _USE_RAPIDS:
+               rsc.tl.louvain(adata, random_state=0, resolution=res)
+           else:
+               sc.tl.louvain(adata, random_state=0, resolution=res)
+           count_unique = len(pd.DataFrame(adata.obs['louvain']).louvain.unique())
            print('resolution={}, cluster number={}'.format(res, count_unique))
         
         if count_unique >= min_clusters:
