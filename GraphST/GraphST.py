@@ -78,7 +78,7 @@ class GraphST():
         datatype : string, optional
             Data type of input. Our model supports 10X Visium ('10X'), Stereo-seq ('Stereo'), and Slide-seq/Slide-seqV2 ('Slide') data.
         large_scale : bool or None, optional
-            Enable large-scale mode with mini-batch training. None = auto-detect (threshold: 100K spots).
+            Enable large-scale mode with mini-batch training. None = auto-detect (threshold: 30K spots).
             False = original full-batch code path. True = chunked/batched path.
         chunk_size : int, optional
             Rows per chunk for Dask/KNN preprocessing. The default is 50000.
