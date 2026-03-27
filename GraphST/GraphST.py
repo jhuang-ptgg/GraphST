@@ -110,6 +110,7 @@ class GraphST():
         self.batch_size = batch_size
         self.map_rank = map_rank
         self.patience = patience
+        self.adata_sc = adata_sc
 
         # Auto-detect large_scale mode
         if large_scale is None:
@@ -191,6 +192,15 @@ class GraphST():
         self.graph_neigh_sparse = self.adata.obsm['graph_neigh']
         if not sp.issparse(self.graph_neigh_sparse):
             self.graph_neigh_sparse = sp.csr_matrix(self.graph_neigh_sparse)
+
+        # Build torch sparse graph_neigh for Noise_Cross_Entropy (mirrors _init_standard)
+        gn_coo = self.graph_neigh_sparse.tocoo()
+        indices = torch.from_numpy(
+            np.vstack([gn_coo.row, gn_coo.col]).astype(np.int64)
+        )
+        values = torch.from_numpy(gn_coo.data.astype(np.float32))
+        n = self.graph_neigh_sparse.shape[0]
+        self.graph_neigh = torch.sparse_coo_tensor(indices, values, (n, n)).to(self.device)
 
         self.dim_input = self.features_np.shape[1]
         self.dim_output = dim_output
@@ -539,8 +549,15 @@ class GraphST():
         # positive pairs
         p = torch.exp(mat)
         if graph_neigh.is_sparse:
-            p = torch.spmm(graph_neigh, p.t()).t()
-            p = p.sum(axis=1)
+            # For sparse neighbor graphs, compute per-row masked sum directly:
+            # p_pos[i] = sum_j graph_neigh[i,j] * exp(mat[i,j])
+            gn = graph_neigh.coalesce()
+            idx = gn.indices()   # shape: (2, nnz)
+            vals = gn.values()   # shape: (nnz,)
+            row_idx = idx[0]
+            col_idx = idx[1]
+            p_ij = p[row_idx, col_idx] * vals
+            p = torch.zeros(p.size(0), device=p.device, dtype=p.dtype).scatter_add(0, row_idx, p_ij)
         else:
             p = torch.mul(p, graph_neigh).sum(axis=1)
 
