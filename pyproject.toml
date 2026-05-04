@@ -1,0 +1,77 @@
+[project]
+name = "GraphST"
+version = "1.1.2"
+description = "Spatially informed clustering, integration, and deconvolution of spatial transcriptomics with GraphST"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+authors = [
+    { name = "Yahui Long", email = "longyh@immunol.a-star.edu.sg" },
+]
+keywords = [
+    "Spatial transcriptomics",
+    "Graph self-supervised contrastive learning",
+    "Spatial clustering",
+    "Cell type deconvolution",
+    "Batch correction",
+    "Single-cell RNA-seq",
+]
+dependencies = [
+    "anndata>=0.8",
+    "h5py",
+    "igraph",
+    "matplotlib>=3.4",
+    "natsort",
+    "networkx",
+    "numpy>=1.22",
+    "pandas>=1.4",
+    "pot>=0.9",
+    "pynndescent",
+    "requests",
+    "scanpy>=1.9",
+    "scikit-learn>=1.1",
+    "scipy>=1.8",
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "tqdm",
+    "umap-learn",
+]
+
+[project.optional-dependencies]
+large-scale = ["dask[array]"]
+gpu = [
+    "rapids-singlecell",
+    "cudf-cu13==26.2.*",
+    "dask-cudf-cu13==26.2.*",
+    "cuml-cu13==26.2.*",
+    "cugraph-cu13==26.2.*",
+    "nx-cugraph-cu13==26.2.*",
+    "cuvs-cu13==26.2.*",
+]
+VHD = ["spatialdata", "spatialdata-io", "ome-zarr<0.14"]
+
+[project.urls]
+Homepage = "https://github.com/JinmiaoChenLab/GraphST"
+
+[tool.setuptools]
+packages = ["GraphST"]
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+cudf-cu13 = { index = "nvidia" }
+dask-cudf-cu13 = { index = "nvidia" }
+cuml-cu13 = { index = "nvidia" }
+cugraph-cu13 = { index = "nvidia" }
+nx-cugraph-cu13 = { index = "nvidia" }
+cuvs-cu13 = {index = "nvidia"} 
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true

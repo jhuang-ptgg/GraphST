@@ -1,36 +1,49 @@
+import warnings
+
 import numpy as np
 import pandas as pd
 from sklearn import metrics
 import scanpy as sc
+try:
+    import rapids_singlecell as rsc
+    print("RAPIDS detected, using RAPIDS for neighbors and clustering")
+    _USE_RAPIDS = True
+except ImportError as e:
+    _USE_RAPIDS = False
+    print(f"Error finding rsc, error {e}")
 import ot
 from sklearn.decomposition import PCA
+from sklearn.mixture import GaussianMixture
 
 
-def mclust_R(adata, num_cluster, modelNames='EEE', used_obsm='emb_pca', random_seed=2020):
+def gmm_clustering(adata, num_cluster, used_obsm='emb_pca', random_seed=2020):
     """\
-    Clustering using the mclust algorithm.
-    The parameters are the same as those in the R package mclust.
+    Clustering using Gaussian Mixture Model with tied covariance (equivalent to mclust EEE).
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        AnnData object.
+    num_cluster : int
+        Number of clusters.
+    used_obsm : str, optional
+        Key in adata.obsm for the embedding to cluster. Default is 'emb_pca'.
+    random_seed : int, optional
+        Random seed. Default is 2020.
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        AnnData with adata.obs['gmm'] set to cluster labels.
     """
-    
-    np.random.seed(random_seed)
-    import rpy2.robjects as robjects
-    robjects.r.library("mclust")
-
-    import rpy2.robjects.numpy2ri
-    rpy2.robjects.numpy2ri.activate()
-    r_random_seed = robjects.r['set.seed']
-    r_random_seed(random_seed)
-    rmclust = robjects.r['Mclust']
-    
-    res = rmclust(rpy2.robjects.numpy2ri.numpy2rpy(adata.obsm[used_obsm]), num_cluster, modelNames)
-    mclust_res = np.array(res[-2])
-
-    adata.obs['mclust'] = mclust_res
-    adata.obs['mclust'] = adata.obs['mclust'].astype('int')
-    adata.obs['mclust'] = adata.obs['mclust'].astype('category')
+    gmm = GaussianMixture(n_components=num_cluster, covariance_type='tied', random_state=random_seed)
+    labels = gmm.fit_predict(adata.obsm[used_obsm])
+    adata.obs['gmm'] = labels
+    adata.obs['gmm'] = adata.obs['gmm'].astype('int')
+    adata.obs['gmm'] = adata.obs['gmm'].astype('category')
     return adata
 
-def clustering(adata, n_clusters=7, radius=50, key='emb', method='mclust', start=0.1, end=3.0, increment=0.01, refinement=False):
+def clustering(adata, min_clusters=7, radius=50, key='emb', method='leiden', start=0.1, end=3.0, increment=0.01, refinement=False):
     """\
     Spatial clustering based the learned representation.
 
@@ -38,14 +51,15 @@ def clustering(adata, n_clusters=7, radius=50, key='emb', method='mclust', start
     ----------
     adata : anndata
         AnnData object of scanpy package.
-    n_clusters : int, optional
-        The number of clusters. The default is 7.
+    min_clusters : int, optional
+        The minimum number of clusters. The default is 7.
     radius : int, optional
         The number of neighbors considered during refinement. The default is 50.
     key : string, optional
         The key of the learned representation in adata.obsm. The default is 'emb'.
     method : string, optional
-        The tool for clustering. Supported tools include 'mclust', 'leiden', and 'louvain'. The default is 'mclust'. 
+        The tool for clustering. Supported tools include 'gmm', 'leiden', and 'louvain'. The default is 'gmm'.
+        'mclust' is accepted as a deprecated alias for 'gmm'.
     start : float
         The start value for searching. The default is 0.1.
     end : float 
@@ -66,15 +80,24 @@ def clustering(adata, n_clusters=7, radius=50, key='emb', method='mclust', start
     adata.obsm['emb_pca'] = embedding
     
     if method == 'mclust':
-       adata = mclust_R(adata, used_obsm='emb_pca', num_cluster=n_clusters)
-       adata.obs['domain'] = adata.obs['mclust']
+       warnings.warn(
+           "method='mclust' is deprecated, use method='gmm' instead. "
+           "Falling back to GMM clustering.",
+           FutureWarning,
+           stacklevel=2,
+       )
+       method = 'gmm'
+
+    if method == 'gmm':
+       adata = gmm_clustering(adata, used_obsm='emb_pca', num_cluster=min_clusters)
+       adata.obs['domain'] = adata.obs['gmm']
     elif method == 'leiden':
-       res = search_res(adata, n_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
-       sc.tl.leiden(adata, random_state=0, resolution=res)
+       adata = search_res(adata, min_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
+       #sc.tl.leiden(adata, random_state=0, resolution=res, flavor='igraph', directed=False)
        adata.obs['domain'] = adata.obs['leiden']
     elif method == 'louvain':
-       res = search_res(adata, n_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
-       sc.tl.louvain(adata, random_state=0, resolution=res)
+       adata = search_res(adata, min_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
+       #sc.tl.louvain(adata, random_state=0, resolution=res)
        adata.obs['domain'] = adata.obs['louvain'] 
        
     if refinement:  
@@ -85,25 +108,23 @@ def refine_label(adata, radius=50, key='label'):
     n_neigh = radius
     new_type = []
     old_type = adata.obs[key].values
-    
-    #calculate distance
+
     position = adata.obsm['spatial']
-    distance = ot.dist(position, position, metric='euclidean')
-           
-    n_cell = distance.shape[0]
-    
+    n_cell = position.shape[0]
+
+    # Use KNN-based approach instead of dense NxN distance matrix
+    from sklearn.neighbors import NearestNeighbors
+    nbrs = NearestNeighbors(n_neighbors=n_neigh + 1).fit(position)
+    _, indices = nbrs.kneighbors(position)
+
     for i in range(n_cell):
-        vec  = distance[i, :]
-        index = vec.argsort()
-        neigh_type = []
-        for j in range(1, n_neigh+1):
-            neigh_type.append(old_type[index[j]])
+        neigh_idx = indices[i, 1:]  # exclude self
+        neigh_type = list(old_type[neigh_idx])
         max_type = max(neigh_type, key=neigh_type.count)
         new_type.append(max_type)
-        
-    new_type = [str(i) for i in list(new_type)]    
-    #adata.obs['label_refined'] = np.array(new_type)
-    
+
+    new_type = [str(i) for i in list(new_type)]
+
     return new_type
 
 def extract_top_value(map_matrix, retain_percent = 0.1): 
@@ -188,49 +209,65 @@ def project_cell_to_spot(adata, adata_sc, retain_percent=0.1):
     #add projection results to adata
     adata.obs[df_projection.columns] = df_projection
     
-def search_res(adata, n_clusters, method='leiden', use_rep='emb', start=0.1, end=3.0, increment=0.01):
+def search_res(adata, min_clusters, method='leiden', use_rep='emb', start=0.1, end=3.0, increment=0.01, use_gpu=None):
     '''\
     Searching corresponding resolution according to given cluster number
-    
+
     Parameters
     ----------
     adata : anndata
         AnnData object of spatial data.
-    n_clusters : int
-        Targetting number of clusters.
+    min_clusters : int
+        Targetting minimum number of clusters.
     method : string
-        Tool for clustering. Supported tools include 'leiden' and 'louvain'. The default is 'leiden'.    
+        Tool for clustering. Supported tools include 'leiden' and 'louvain'. The default is 'leiden'.
     use_rep : string
         The indicated representation for clustering.
     start : float
-        The start value for searching.
-    end : float 
+        The start value for searching. must be less than end value.
+    end : float
         The end value for searching.
     increment : float
         The step size to increase.
-        
+    use_gpu : bool or None
+        Whether to use RAPIDS cuGraph for neighbors and clustering. If None (default),
+        auto-detects based on whether rapids_singlecell is available.
+
     Returns
     -------
     res : float
         Resolution.
-        
+
     '''
     print('Searching resolution...')
-    label = 0
-    sc.pp.neighbors(adata, n_neighbors=50, use_rep=use_rep)
-    for res in sorted(list(np.arange(start, end, increment)), reverse=True):
+    _gpu = _USE_RAPIDS if use_gpu is None else use_gpu
+
+    if _gpu:
+        print("Using RAPIDS cuGraph for neighbors calculation")
+        rsc.pp.neighbors(adata, n_neighbors=50, use_rep=use_rep)
+    else:
+        print("Using Scanpy for neighbors calculation")
+        sc.pp.neighbors(adata, n_neighbors=50, use_rep=use_rep)
+    assert start < end, "Start value must be less than end value."
+    for res in np.arange(start, end, increment):
         if method == 'leiden':
-           sc.tl.leiden(adata, random_state=0, resolution=res)
+           if _gpu:
+               print("Using RAPIDS cuGraph for leiden clustering")
+               rsc.tl.leiden(adata, random_state=0, resolution=res)
+           else:
+               print("Using Scanpy for leiden clustering")
+               sc.tl.leiden(adata, random_state=0, resolution=res, flavor='igraph', directed=False)
            count_unique = len(pd.DataFrame(adata.obs['leiden']).leiden.unique())
            print('resolution={}, cluster number={}'.format(res, count_unique))
         elif method == 'louvain':
-           sc.tl.louvain(adata, random_state=0, resolution=res)
-           count_unique = len(pd.DataFrame(adata.obs['louvain']).louvain.unique()) 
+           if _gpu:
+               rsc.tl.louvain(adata, random_state=0, resolution=res)
+           else:
+               sc.tl.louvain(adata, random_state=0, resolution=res)
+           count_unique = len(pd.DataFrame(adata.obs['louvain']).louvain.unique())
            print('resolution={}, cluster number={}'.format(res, count_unique))
-        if count_unique == n_clusters:
-            label = 1
-            break
-
-    assert label==1, "Resolution is not found. Please try bigger range or smaller step!." 
-       
-    return res    
+        
+        if count_unique >= min_clusters:
+            return adata    
+    
+    raise ValueError("Could not find a resolution that yields the desired number of clusters within the specified range.")

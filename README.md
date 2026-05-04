@@ -1,5 +1,62 @@
 # Spatially informed clustering, integration, and deconvolution of spatial transcriptomics with GraphST
 
+## NOTE: 
+This is a Fork from [https://github.com/JinmiaoChenLab/GraphST/](https://github.com/JinmiaoChenLab/GraphST/).
+
+### Updates made in this fork
+* Use python==3.13 as default python version
+* Generated pyproject.toml for using uv as package management system
+* remove mclust and R dependency, use sklearn to replace
+* use leiden as default clustering method
+
+## Install steps
+We recommend to use `uv` for package and virtual environment management 
+1. Create an venv with python 3.13
+```bash
+uv venv --python=3.13 
+```
+
+2. Switch to the created venv
+```bash
+source .venv/bin/activate
+```
+
+3. Install pytorch
+It is recommended to install pytorch with GPU support. Here is an example to install the CUDA 13 version of pytorch
+```bash
+uv pip install torch --index-url https://download.pytorch.org/whl/cu130
+```
+
+4. Install GraphST
+
+## Visium HD / Large-Scale Data
+
+> **Strongly recommended** if you are processing **Visium HD** or any dataset with >30,000 spots.
+
+Visium HD produces hundreds of thousands of spots. Without the optional large-scale dependencies, GraphST will run out of memory during graph construction and feature extraction.
+
+Install both optional extras:
+```bash
+uv pip install -e ".[large-scale,gpu]"
+```
+
+| Extra | Package | Purpose |
+|---|---|---|
+| `large-scale` | `dask[array]` | Chunked graph construction and feature extraction for >30K spots |
+| `gpu` | `rapids-singlecell` | GPU-accelerated leiden/louvain clustering (falls back to scanpy if absent) |
+
+`rapids-singlecell` requires a CUDA-capable GPU and the [RAPIDS](https://rapids.ai) stack. If you are on a CPU-only machine, omit the `gpu` extra — clustering will automatically fall back to scanpy.
+
+Otherwise, to install CPU version without large-scale support 
+```bash
+uv pip install -e .
+```
+
+
+
+
+## Original contents
+
 [![DOI](https://zenodo.org/badge/494373596.svg)](https://zenodo.org/badge/latestdoi/494373596)
 
 ![](https://github.com/JinmiaoChenLab/GraphST/blob/main/GraphST.jpg)
@@ -9,7 +66,7 @@ GraphST is a versatile graph self-supervised contrastive learning model that inc
 
 ## Requirements
 You'll need to install the following packages in order to run the codes.
-* python==3.8
+* python==3.12
 * torch>=1.8.0
 * cudnn>=10.2
 * numpy==1.22.3

@@ -12,7 +12,7 @@ GraphST is a graph self-supervised contrastive learning model for spatial transc
 pip install -e .
 ```
 
-Key dependencies: torch (>=1.8), scanpy, anndata, scipy, scikit-learn, POT (optimal transport), rpy2 (for mclust clustering only), tqdm.
+Key dependencies: torch (>=1.8), scanpy, anndata, scipy, scikit-learn, POT (optimal transport), tqdm.
 
 No test suite exists. No linter or formatter is configured.
 
@@ -43,7 +43,7 @@ All source lives in `GraphST/` (single flat package). The pipeline flows:
    - `Noise_Cross_Entropy()`: Contrastive loss using spatial neighbors as positive pairs
 
 4. **`utils.py`** — Clustering and projection utilities:
-   - `clustering()`: PCA → mclust/leiden/louvain clustering with optional `refine_label()`
+   - `clustering()`: PCA → GMM/leiden/louvain clustering with optional `refine_label()`
    - `refine_label()`: Majority-vote label smoothing using spatial KNN (uses dense `ot.dist`)
    - `project_cell_to_spot()`: Projects cell types onto spots via learned mapping matrix
 

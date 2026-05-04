@@ -48,50 +48,52 @@ def permutation(feature):
     return feature_permutated 
 
 def construct_interaction(adata, n_neighbors=3):
-    """Constructing spot-to-spot interactive graph"""
+    """Constructing spot-to-spot interactive graph (full-batch dense method)."""
+    print('Constructing spatial graph and neighbor graph using full-batch method...')
     position = adata.obsm['spatial']
-    
+
     # calculate distance matrix
     distance_matrix = ot.dist(position, position, metric='euclidean')
     n_spot = distance_matrix.shape[0]
-    
+
     adata.obsm['distance_matrix'] = distance_matrix
-    
+
     # find k-nearest neighbors
-    interaction = np.zeros([n_spot, n_spot])  
+    interaction = np.zeros([n_spot, n_spot])
     for i in range(n_spot):
         vec = distance_matrix[i, :]
         distance = vec.argsort()
         for t in range(1, n_neighbors + 1):
             y = distance[t]
             interaction[i, y] = 1
-         
+
     adata.obsm['graph_neigh'] = interaction
-    
+
     #transform adj to symmetrical adj
     adj = interaction
     adj = adj + adj.T
     adj = np.where(adj>1, 1, adj)
-    
+
     adata.obsm['adj'] = adj
     
 def construct_interaction_KNN(adata, n_neighbors=3):
+    """Constructing KNN graph for Stereo-seq/Slide-seq data (full-batch method)."""
     position = adata.obsm['spatial']
     n_spot = position.shape[0]
-    nbrs = NearestNeighbors(n_neighbors=n_neighbors+1).fit(position)  
+    nbrs = NearestNeighbors(n_neighbors=n_neighbors+1).fit(position)
     _ , indices = nbrs.kneighbors(position)
     x = indices[:, 0].repeat(n_neighbors)
     y = indices[:, 1:].flatten()
     interaction = np.zeros([n_spot, n_spot])
     interaction[x, y] = 1
-    
+
     adata.obsm['graph_neigh'] = interaction
-    
+
     #transform adj to symmetrical adj
     adj = interaction
     adj = adj + adj.T
     adj = np.where(adj>1, 1, adj)
-    
+
     adata.obsm['adj'] = adj
     print('Graph constructed!')   
 
@@ -147,7 +149,7 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     indices = torch.from_numpy(np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int64))
     values = torch.from_numpy(sparse_mx.data)
     shape = torch.Size(sparse_mx.shape)
-    return torch.sparse.FloatTensor(indices, values, shape)
+    return torch.sparse_coo_tensor(indices, values, shape, dtype=torch.float32)
 
 def preprocess_adj_sparse(adj):
     adj = sp.coo_matrix(adj)
