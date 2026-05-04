@@ -19,6 +19,7 @@ keywords = [
 dependencies = [
     "anndata>=0.8",
     "h5py",
+    "igraph",
     "matplotlib>=3.4",
     "natsort",
     "networkx",
@@ -38,7 +39,16 @@ dependencies = [
 
 [project.optional-dependencies]
 large-scale = ["dask[array]"]
-gpu = ["rapids-singlecell"]
+gpu = [
+    "rapids-singlecell",
+    "cudf-cu13==26.2.*",
+    "dask-cudf-cu13==26.2.*",
+    "cuml-cu13==26.2.*",
+    "cugraph-cu13==26.2.*",
+    "nx-cugraph-cu13==26.2.*",
+    "cuvs-cu13==26.2.*",
+]
+VHD = ["spatialdata", "spatialdata-io", "ome-zarr<0.14"]
 
 [project.urls]
 Homepage = "https://github.com/JinmiaoChenLab/GraphST"
@@ -49,8 +59,19 @@ packages = ["GraphST"]
 [tool.uv.sources]
 torch = { index = "pytorch" }
 torchvision = { index = "pytorch" }
+cudf-cu13 = { index = "nvidia" }
+dask-cudf-cu13 = { index = "nvidia" }
+cuml-cu13 = { index = "nvidia" }
+cugraph-cu13 = { index = "nvidia" }
+nx-cugraph-cu13 = { index = "nvidia" }
+cuvs-cu13 = {index = "nvidia"} 
 
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
 explicit = true

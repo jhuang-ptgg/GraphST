@@ -13,7 +13,7 @@ This is a Fork from [https://github.com/JinmiaoChenLab/GraphST/](https://github.
 We recommend to use `uv` for package and virtual environment management 
 1. Create an venv with python 3.13
 ```bash
-uv venv --python=3.13 .
+uv venv --python=3.13 
 ```
 
 2. Switch to the created venv
@@ -24,13 +24,10 @@ source .venv/bin/activate
 3. Install pytorch
 It is recommended to install pytorch with GPU support. Here is an example to install the CUDA 13 version of pytorch
 ```bash
-uv pip install --index
+uv pip install torch --index-url https://download.pytorch.org/whl/cu130
 ```
 
 4. Install GraphST
-```bash
-pip install -e .
-```
 
 ## Visium HD / Large-Scale Data
 
@@ -40,7 +37,7 @@ Visium HD produces hundreds of thousands of spots. Without the optional large-sc
 
 Install both optional extras:
 ```bash
-pip install -e ".[large-scale,gpu]"
+uv pip install -e ".[large-scale,gpu]"
 ```
 
 | Extra | Package | Purpose |
@@ -49,6 +46,14 @@ pip install -e ".[large-scale,gpu]"
 | `gpu` | `rapids-singlecell` | GPU-accelerated leiden/louvain clustering (falls back to scanpy if absent) |
 
 `rapids-singlecell` requires a CUDA-capable GPU and the [RAPIDS](https://rapids.ai) stack. If you are on a CPU-only machine, omit the `gpu` extra — clustering will automatically fall back to scanpy.
+
+Otherwise, to install CPU version without large-scale support 
+```bash
+uv pip install -e .
+```
+
+
+
 
 ## Original contents
 

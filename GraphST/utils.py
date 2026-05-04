@@ -6,9 +6,11 @@ from sklearn import metrics
 import scanpy as sc
 try:
     import rapids_singlecell as rsc
+    print("RAPIDS detected, using RAPIDS for neighbors and clustering")
     _USE_RAPIDS = True
-except ImportError:
+except ImportError as e:
     _USE_RAPIDS = False
+    print(f"Error finding rsc, error {e}")
 import ot
 from sklearn.decomposition import PCA
 from sklearn.mixture import GaussianMixture
@@ -207,10 +209,10 @@ def project_cell_to_spot(adata, adata_sc, retain_percent=0.1):
     #add projection results to adata
     adata.obs[df_projection.columns] = df_projection
     
-def search_res(adata, min_clusters, method='leiden', use_rep='emb', start=0.1, end=3.0, increment=0.01):
+def search_res(adata, min_clusters, method='leiden', use_rep='emb', start=0.1, end=3.0, increment=0.01, use_gpu=None):
     '''\
     Searching corresponding resolution according to given cluster number
-    
+
     Parameters
     ----------
     adata : anndata
@@ -218,39 +220,47 @@ def search_res(adata, min_clusters, method='leiden', use_rep='emb', start=0.1, e
     min_clusters : int
         Targetting minimum number of clusters.
     method : string
-        Tool for clustering. Supported tools include 'leiden' and 'louvain'. The default is 'leiden'.    
+        Tool for clustering. Supported tools include 'leiden' and 'louvain'. The default is 'leiden'.
     use_rep : string
         The indicated representation for clustering.
     start : float
         The start value for searching. must be less than end value.
-    end : float 
+    end : float
         The end value for searching.
     increment : float
         The step size to increase.
-        
+    use_gpu : bool or None
+        Whether to use RAPIDS cuGraph for neighbors and clustering. If None (default),
+        auto-detects based on whether rapids_singlecell is available.
+
     Returns
     -------
     res : float
         Resolution.
-        
+
     '''
     print('Searching resolution...')
+    _gpu = _USE_RAPIDS if use_gpu is None else use_gpu
 
-    if _USE_RAPIDS:
+    if _gpu:
+        print("Using RAPIDS cuGraph for neighbors calculation")
         rsc.pp.neighbors(adata, n_neighbors=50, use_rep=use_rep)
     else:
+        print("Using Scanpy for neighbors calculation")
         sc.pp.neighbors(adata, n_neighbors=50, use_rep=use_rep)
     assert start < end, "Start value must be less than end value."
     for res in np.arange(start, end, increment):
         if method == 'leiden':
-           if _USE_RAPIDS:
+           if _gpu:
+               print("Using RAPIDS cuGraph for leiden clustering")
                rsc.tl.leiden(adata, random_state=0, resolution=res)
            else:
+               print("Using Scanpy for leiden clustering")
                sc.tl.leiden(adata, random_state=0, resolution=res, flavor='igraph', directed=False)
            count_unique = len(pd.DataFrame(adata.obs['leiden']).leiden.unique())
            print('resolution={}, cluster number={}'.format(res, count_unique))
         elif method == 'louvain':
-           if _USE_RAPIDS:
+           if _gpu:
                rsc.tl.louvain(adata, random_state=0, resolution=res)
            else:
                sc.tl.louvain(adata, random_state=0, resolution=res)
